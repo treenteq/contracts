@@ -86,15 +86,14 @@ contract DatasetTokenTest is Test {
         // Verify metadata
         (
             string memory name, // description
+            ,
+            ,
+            ,
             // contentHash
             // ipfsHash
-            ,
-            ,
-            ,
-            uint256 price,
+            uint256 price, // tags
 
-        ) = // tags
-            datasetToken.getDatasetMetadata(0);
+        ) = datasetToken.getDatasetMetadata(0);
 
         assertEq(name, DATASET_NAME, "Name should match");
         assertEq(price, PRICE, "Price should match");
@@ -123,14 +122,34 @@ contract DatasetTokenTest is Test {
         vm.deal(user3, PRICE);
         datasetToken.purchaseDataset{value: PRICE}(0);
 
-        // Verify token ownership transfer
-        assertEq(datasetToken.balanceOf(user3, 0), 2);
-        assertEq(datasetToken.balanceOf(user1, 0), 0);
-        assertEq(datasetToken.balanceOf(user2, 0), 0);
+        // Verify token ownership remains unchanged
+        assertEq(
+            datasetToken.balanceOf(user1, 0),
+            1,
+            "User1 should still own the token"
+        );
+        assertEq(
+            datasetToken.balanceOf(user2, 0),
+            1,
+            "User2 should still own the token"
+        );
+        assertEq(
+            datasetToken.balanceOf(user3, 0),
+            0,
+            "User3 should not own the token"
+        );
 
         // Verify payment distribution
-        assertEq(user1.balance, user1InitialBalance + ((PRICE * 7000) / 10000)); // 70%
-        assertEq(user2.balance, user2InitialBalance + ((PRICE * 3000) / 10000)); // 30%
+        assertEq(
+            user1.balance,
+            user1InitialBalance + ((PRICE * 7000) / 10000),
+            "User1 should receive 70% of payment"
+        );
+        assertEq(
+            user2.balance,
+            user2InitialBalance + ((PRICE * 3000) / 10000),
+            "User2 should receive 30% of payment"
+        );
     }
 
     function test_GetTokensByTag() public {

@@ -175,17 +175,13 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
         DatasetMetadata storage metadata = _tokenMetadata[tokenId];
         uint256 totalAmount = msg.value;
 
-        // Transfer ownership shares and payments
+        // Distribute payments to owners
         for (uint256 i = 0; i < metadata.owners.length; i++) {
             address owner = metadata.owners[i].owner;
-            require(balanceOf(owner, tokenId) > 0, "Owner has no tokens");
 
             // Calculate owner's share of the payment
             uint256 ownerShare = (totalAmount * metadata.owners[i].percentage) /
                 10000;
-
-            // Transfer token
-            _safeTransferFrom(owner, msg.sender, tokenId, 1, "");
 
             // Transfer payment
             (bool success, ) = owner.call{value: ownerShare}("");
