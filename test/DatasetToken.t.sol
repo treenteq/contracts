@@ -385,4 +385,78 @@ contract DatasetTokenTest is Test {
             "Price should increase by 1.5x after purchase"
         );
     }
+
+    function test_PurchaseTracking() public {
+        // First mint a token
+        vm.startPrank(owner);
+        datasetToken.mintDatasetToken(
+            shares,
+            DATASET_NAME,
+            DATASET_DESC,
+            CONTENT_HASH,
+            IPFS_HASH,
+            PRICE,
+            TAGS
+        );
+
+        // Mint a second token
+        datasetToken.mintDatasetToken(
+            shares,
+            "Second Dataset",
+            DATASET_DESC,
+            CONTENT_HASH,
+            IPFS_HASH,
+            PRICE,
+            TAGS
+        );
+        vm.stopPrank();
+
+        // Purchase first token with user3
+        vm.startPrank(user3);
+        vm.deal(user3, PRICE * 2);
+        datasetToken.purchaseDataset{value: PRICE}(0);
+
+        // Verify purchase tracking
+        uint256[] memory purchasedTokens = datasetToken.getPurchasedTokens(
+            user3
+        );
+        assertEq(purchasedTokens.length, 1, "Should have one purchased token");
+        assertEq(purchasedTokens[0], 0, "Should have purchased token 0");
+        assertTrue(
+            datasetToken.hasPurchased(user3, 0),
+            "Should have purchased token 0"
+        );
+        assertFalse(
+            datasetToken.hasPurchased(user3, 1),
+            "Should not have purchased token 1"
+        );
+
+        // Purchase second token
+        datasetToken.purchaseDataset{value: PRICE}(1);
+
+        // Verify updated purchase tracking
+        purchasedTokens = datasetToken.getPurchasedTokens(user3);
+        assertEq(purchasedTokens.length, 2, "Should have two purchased tokens");
+        assertEq(purchasedTokens[0], 0, "First purchase should be token 0");
+        assertEq(purchasedTokens[1], 1, "Second purchase should be token 1");
+        assertTrue(
+            datasetToken.hasPurchased(user3, 0),
+            "Should have purchased token 0"
+        );
+        assertTrue(
+            datasetToken.hasPurchased(user3, 1),
+            "Should have purchased token 1"
+        );
+        vm.stopPrank();
+
+        // Verify no purchases for other users
+        uint256[] memory user1Purchases = datasetToken.getPurchasedTokens(
+            user1
+        );
+        assertEq(user1Purchases.length, 0, "User1 should have no purchases");
+        assertFalse(
+            datasetToken.hasPurchased(user1, 0),
+            "User1 should not have purchased token 0"
+        );
+    }
 }

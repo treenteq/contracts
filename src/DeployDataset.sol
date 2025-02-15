@@ -37,6 +37,10 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
     // The Bonding Curve contract
     DatasetBondingCurve public bondingCurve;
 
+    // Mapping to track purchased tokens by address
+    mapping(address => uint256[]) private _purchasedTokens;
+    mapping(address => mapping(uint256 => bool)) private _hasPurchased;
+
     // Events
     event DatasetTokenMinted(
         address[] owners,
@@ -169,6 +173,10 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
      */
     function purchaseDataset(uint256 tokenId) external payable nonReentrant {
         require(isListed[tokenId], "Dataset is not listed for sale");
+        require(
+            !_hasPurchased[msg.sender][tokenId],
+            "Already purchased this dataset"
+        );
         uint256 currentPrice = bondingCurve.getCurrentPrice(tokenId);
         require(msg.value == currentPrice, "Incorrect payment amount");
 
@@ -188,6 +196,10 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
             require(success, "Payment transfer failed");
         }
 
+        // Record the purchase
+        _purchasedTokens[msg.sender].push(tokenId);
+        _hasPurchased[msg.sender][tokenId] = true;
+
         // Record the purchase in the bonding curve
         bondingCurve.recordPurchase(tokenId);
 
@@ -200,6 +212,30 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
         }
 
         emit DatasetPurchased(tokenId, msg.sender, sellers, amounts);
+    }
+
+    /**
+     * @dev Get all token IDs purchased by an address
+     * @param buyer The address to check
+     * @return tokens Array of token IDs purchased by the buyer
+     */
+    function getPurchasedTokens(
+        address buyer
+    ) public view returns (uint256[] memory tokens) {
+        return _purchasedTokens[buyer];
+    }
+
+    /**
+     * @dev Check if an address has purchased a specific token
+     * @param buyer The address to check
+     * @param tokenId The token ID to check
+     * @return bool True if the address has purchased the token
+     */
+    function hasPurchased(
+        address buyer,
+        uint256 tokenId
+    ) external view returns (bool) {
+        return _hasPurchased[buyer][tokenId];
     }
 
     /**
