@@ -4,10 +4,12 @@ pragma solidity ^0.8.18;
 import {Test, console2} from "forge-std/Test.sol";
 import {DatasetToken} from "../src/DeployDataset.sol";
 import {DatasetBondingCurve} from "../src/DatasetBondingCurve.sol";
+import {MockUSDC} from "./mocks/MockUSDC.sol";
 
 contract DatasetBondingCurveTest is Test {
     DatasetBondingCurve public bondingCurve;
     DatasetToken public datasetToken;
+    MockUSDC public mockUsdc;
     address public owner;
     address public user1;
     address public user2;
@@ -18,18 +20,25 @@ contract DatasetBondingCurveTest is Test {
 
     // Constants for time-based tests
     uint256 constant WEEK = 7 days;
-    uint256 constant INITIAL_PRICE = 0.1 ether;
+    uint256 constant INITIAL_PRICE = 100_000; // 0.1 USDC
 
     function setUp() public {
         owner = address(this);
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
 
+        // Deploy mock USDC
+        mockUsdc = new MockUSDC();
+
         // Deploy DatasetToken
-        datasetToken = new DatasetToken("ipfs://", owner);
+        datasetToken = new DatasetToken("ipfs://", owner, address(mockUsdc));
 
         // Deploy BondingCurve
-        bondingCurve = new DatasetBondingCurve(address(datasetToken), owner);
+        bondingCurve = new DatasetBondingCurve(
+            address(datasetToken),
+            address(mockUsdc),
+            owner
+        );
 
         // Set bonding curve in dataset token
         datasetToken.setBondingCurve(address(bondingCurve));
@@ -42,14 +51,15 @@ contract DatasetBondingCurveTest is Test {
         shares.push(DatasetToken.OwnershipShare(user1, 5000)); // 50%
         shares.push(DatasetToken.OwnershipShare(user2, 5000)); // 50%
 
-        vm.deal(user1, 100 ether);
-        vm.deal(user2, 100 ether);
+        // Mint USDC to users
+        mockUsdc.mint(user1, 100_000_000); // 100 USDC
+        mockUsdc.mint(user2, 100_000_000); // 100 USDC
     }
 
     function test_IndependentBondingCurves() public {
         vm.startPrank(owner);
 
-        // Mint first dataset token with 0.1 ether initial price
+        // Mint first dataset token with 0.1 USDC initial price
         datasetToken.mintDatasetToken(
             shares,
             "Dataset 1",
@@ -60,14 +70,14 @@ contract DatasetBondingCurveTest is Test {
             tags
         );
 
-        // Mint second dataset token with 0.2 ether initial price
+        // Mint second dataset token with 0.2 USDC initial price
         datasetToken.mintDatasetToken(
             shares,
             "Dataset 2",
             "Description 2",
             "QmHash2",
             "ipfs://QmHash2",
-            0.2 ether,
+            200_000, // 0.2 USDC
             tags
         );
 
@@ -77,27 +87,29 @@ contract DatasetBondingCurveTest is Test {
         assertEq(
             bondingCurve.getCurrentPrice(0),
             INITIAL_PRICE,
-            "First token should have 0.1 ether initial price"
+            "First token should have 0.1 USDC initial price"
         );
         assertEq(
             bondingCurve.getCurrentPrice(1),
-            0.2 ether,
-            "Second token should have 0.2 ether initial price"
+            200_000,
+            "Second token should have 0.2 USDC initial price"
         );
 
-        // Purchase first token
-        vm.prank(user1);
-        datasetToken.purchaseDataset{value: INITIAL_PRICE}(0);
+        // Approve and purchase first token
+        vm.startPrank(user1);
+        mockUsdc.approve(address(datasetToken), INITIAL_PRICE);
+        datasetToken.purchaseDataset(0);
+        vm.stopPrank();
 
         // Check prices after purchase
         assertEq(
             bondingCurve.getCurrentPrice(0),
-            0.15 ether,
+            150_000, // 0.15 USDC
             "First token price should increase by 1.5x"
         );
         assertEq(
             bondingCurve.getCurrentPrice(1),
-            0.2 ether,
+            200_000,
             "Second token price should remain unchanged"
         );
     }
@@ -105,7 +117,7 @@ contract DatasetBondingCurveTest is Test {
     function test_PriceIncrease() public {
         vm.startPrank(owner);
 
-        // Mint token with 0.1 ether initial price
+        // Mint token with 0.1 USDC initial price
         datasetToken.mintDatasetToken(
             shares,
             "Dataset 1",
@@ -121,28 +133,32 @@ contract DatasetBondingCurveTest is Test {
         assertEq(
             initialPrice,
             INITIAL_PRICE,
-            "Initial price should be 0.1 ether"
+            "Initial price should be 0.1 USDC"
         );
 
         // First purchase
-        vm.prank(user1);
-        datasetToken.purchaseDataset{value: INITIAL_PRICE}(0);
+        vm.startPrank(user1);
+        mockUsdc.approve(address(datasetToken), INITIAL_PRICE);
+        datasetToken.purchaseDataset(0);
+        vm.stopPrank();
 
         uint256 secondPrice = bondingCurve.getCurrentPrice(0);
         assertEq(
             secondPrice,
-            0.15 ether,
+            150_000, // 0.15 USDC
             "Price should increase by 1.5x after first purchase"
         );
 
         // Second purchase
-        vm.prank(user2);
-        datasetToken.purchaseDataset{value: 0.15 ether}(0);
+        vm.startPrank(user2);
+        mockUsdc.approve(address(datasetToken), 150_000);
+        datasetToken.purchaseDataset(0);
+        vm.stopPrank();
 
         uint256 thirdPrice = bondingCurve.getCurrentPrice(0);
         assertEq(
             thirdPrice,
-            0.225 ether,
+            225_000, // 0.225 USDC
             "Price should increase by 1.5x after second purchase"
         );
     }
@@ -166,7 +182,7 @@ contract DatasetBondingCurveTest is Test {
         uint256 priceAfterWeek = bondingCurve.getCurrentPrice(0);
         assertEq(
             priceAfterWeek,
-            0.09 ether,
+            90_000, // 0.09 USDC
             "Price should decrease by 10% after one week"
         );
     }
@@ -190,7 +206,7 @@ contract DatasetBondingCurveTest is Test {
         uint256 priceAfterTwoWeeks = bondingCurve.getCurrentPrice(0);
         assertEq(
             priceAfterTwoWeeks,
-            0.081 ether,
+            81_000, // 0.081 USDC
             "Price should decrease by 19% after two weeks"
         );
     }
@@ -231,13 +247,15 @@ contract DatasetBondingCurveTest is Test {
         );
         assertEq(
             priceAfterWeek,
-            0.09 ether,
+            90_000, // 0.09 USDC
             "Price should decrease by 10% after one week"
         );
 
         // Purchase at depreciated price
-        vm.prank(user1);
-        datasetToken.purchaseDataset{value: 0.09 ether}(0);
+        vm.startPrank(user1);
+        mockUsdc.approve(address(datasetToken), 90_000);
+        datasetToken.purchaseDataset(0);
+        vm.stopPrank();
 
         uint256 purchaseTimestamp = block.timestamp;
         console2.log("Purchase timestamp:", purchaseTimestamp);
@@ -251,7 +269,7 @@ contract DatasetBondingCurveTest is Test {
         );
         assertEq(
             priceAfterPurchase,
-            0.135 ether,
+            135_000, // 0.135 USDC
             "Price should be 1.5x the depreciated price (0.09 * 1.5 = 0.135)"
         );
 
@@ -267,7 +285,7 @@ contract DatasetBondingCurveTest is Test {
             bondingCurve.currentBasePrices(0)
         );
 
-        // The base price is now 0.135 ETH, so after one week it should be 0.135 * 0.9 = 0.1215
+        // The base price is now 0.135 USDC, so after one week it should be 0.135 * 0.9 = 0.1215 USDC
         uint256 priceOneWeekAfterPurchase = bondingCurve.getCurrentPrice(0);
         console2.log(
             "Price one week after purchase:",
@@ -279,8 +297,8 @@ contract DatasetBondingCurveTest is Test {
         );
         assertEq(
             priceOneWeekAfterPurchase,
-            0.1215 ether,
-            "Price should decrease by 10% from 0.135 ETH (0.135 * 0.9 = 0.1215)"
+            121_500, // 0.1215 USDC
+            "Price should decrease by 10% from 0.135 USDC (0.135 * 0.9 = 0.1215)"
         );
     }
 
@@ -298,14 +316,16 @@ contract DatasetBondingCurveTest is Test {
         vm.stopPrank();
 
         // First purchase at initial price
-        vm.prank(user1);
-        datasetToken.purchaseDataset{value: INITIAL_PRICE}(0);
+        vm.startPrank(user1);
+        mockUsdc.approve(address(datasetToken), INITIAL_PRICE);
+        datasetToken.purchaseDataset(0);
+        vm.stopPrank();
 
-        // Price should be 0.15 ether after first purchase
+        // Price should be 150_000 USDC after first purchase
         uint256 priceAfterFirstPurchase = bondingCurve.getCurrentPrice(0);
         assertEq(
             priceAfterFirstPurchase,
-            0.15 ether,
+            150_000, // 0.15 USDC
             "Price should be 1.5x initial price after first purchase"
         );
 
@@ -315,18 +335,20 @@ contract DatasetBondingCurveTest is Test {
         uint256 priceAfterWeek = bondingCurve.getCurrentPrice(0);
         assertEq(
             priceAfterWeek,
-            0.135 ether,
+            135_000, // 0.135 USDC
             "Price should decrease by 10% after one week (0.15 * 0.9 = 0.135)"
         );
 
         // Second purchase at depreciated price
-        vm.prank(user2);
-        datasetToken.purchaseDataset{value: 0.135 ether}(0);
+        vm.startPrank(user2);
+        mockUsdc.approve(address(datasetToken), 135_000);
+        datasetToken.purchaseDataset(0);
+        vm.stopPrank();
 
         uint256 priceAfterSecondPurchase = bondingCurve.getCurrentPrice(0);
         assertEq(
             priceAfterSecondPurchase,
-            0.2025 ether,
+            202_500, // 0.2025 USDC
             "Price should increase by 1.5x from depreciated price (0.135 * 1.5 = 0.2025)"
         );
     }

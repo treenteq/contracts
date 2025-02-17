@@ -4,10 +4,12 @@ pragma solidity ^0.8.18;
 import {Test, console2} from "forge-std/Test.sol";
 import {DatasetToken} from "../src/DeployDataset.sol";
 import {DatasetBondingCurve} from "../src/DatasetBondingCurve.sol";
+import {MockUSDC} from "./mocks/MockUSDC.sol";
 
 contract DatasetTokenTest is Test {
     DatasetToken public datasetToken;
     DatasetBondingCurve public bondingCurve;
+    MockUSDC public mockUsdc;
     address public owner;
     address public user1;
     address public user2;
@@ -19,7 +21,7 @@ contract DatasetTokenTest is Test {
     string constant DATASET_DESC = "Test Description";
     string constant CONTENT_HASH = "QmTest123ContentHash";
     string constant IPFS_HASH = "QmTest123IPFSHash";
-    uint256 constant PRICE = 1 ether;
+    uint256 constant PRICE = 1_000_000; // 1 USDC
     string[] TAGS;
     DatasetToken.OwnershipShare[] shares;
 
@@ -30,6 +32,9 @@ contract DatasetTokenTest is Test {
         user2 = makeAddr("user2");
         user3 = makeAddr("user3");
 
+        // Deploy mock USDC
+        mockUsdc = new MockUSDC();
+
         // Set up test tags
         TAGS = new string[](3);
         TAGS[0] = "AI";
@@ -38,32 +43,33 @@ contract DatasetTokenTest is Test {
 
         // Deploy contract
         vm.prank(owner);
-        datasetToken = new DatasetToken(BASE_URI, owner);
+        datasetToken = new DatasetToken(BASE_URI, owner, address(mockUsdc));
 
         // Deploy and set up bonding curve
-        bondingCurve = new DatasetBondingCurve(address(datasetToken), owner);
+        bondingCurve = new DatasetBondingCurve(
+            address(datasetToken),
+            address(mockUsdc),
+            owner
+        );
         vm.prank(owner);
         datasetToken.setBondingCurve(address(bondingCurve));
-
-        // Setup test data
-        TAGS = new string[](3);
-        TAGS[0] = "AI";
-        TAGS[1] = "ML";
-        TAGS[2] = "Data";
 
         // Create ownership shares
         shares = new DatasetToken.OwnershipShare[](2);
         shares[0] = DatasetToken.OwnershipShare(user1, 7000); // 70%
         shares[1] = DatasetToken.OwnershipShare(user2, 3000); // 30%
 
-        vm.deal(user1, 100 ether);
-        vm.deal(user2, 100 ether);
+        // Mint USDC to users
+        mockUsdc.mint(user1, 100_000_000); // 100 USDC
+        mockUsdc.mint(user2, 100_000_000); // 100 USDC
+        mockUsdc.mint(user3, 100_000_000); // 100 USDC
     }
 
     function test_InitialState() public view {
         assertEq(datasetToken.owner(), owner);
         assertEq(datasetToken.getTotalTokens(), 0);
         assertEq(address(datasetToken.bondingCurve()), address(bondingCurve));
+        assertEq(address(datasetToken.usdc()), address(mockUsdc));
     }
 
     function test_MintDatasetToken() public {
@@ -84,16 +90,8 @@ contract DatasetTokenTest is Test {
         assertEq(datasetToken.balanceOf(user2, 0), 1);
 
         // Verify metadata
-        (
-            string memory name, // description
-            ,
-            ,
-            ,
-            // contentHash
-            // ipfsHash
-            uint256 price, // tags
-
-        ) = datasetToken.getDatasetMetadata(0);
+        (string memory name, , , , uint256 price, ) = datasetToken
+            .getDatasetMetadata(0);
 
         assertEq(name, DATASET_NAME, "Name should match");
         assertEq(price, PRICE, "Price should match");
@@ -114,13 +112,14 @@ contract DatasetTokenTest is Test {
         vm.stopPrank();
 
         // Record initial balances
-        uint256 user1InitialBalance = user1.balance;
-        uint256 user2InitialBalance = user2.balance;
+        uint256 user1InitialBalance = mockUsdc.balanceOf(user1);
+        uint256 user2InitialBalance = mockUsdc.balanceOf(user2);
 
-        // Purchase the token
-        vm.prank(user3);
-        vm.deal(user3, PRICE);
-        datasetToken.purchaseDataset{value: PRICE}(0);
+        // Approve and purchase the token
+        vm.startPrank(user3);
+        mockUsdc.approve(address(datasetToken), PRICE);
+        datasetToken.purchaseDataset(0);
+        vm.stopPrank();
 
         // Verify token ownership remains unchanged
         assertEq(
@@ -141,12 +140,12 @@ contract DatasetTokenTest is Test {
 
         // Verify payment distribution
         assertEq(
-            user1.balance,
+            mockUsdc.balanceOf(user1),
             user1InitialBalance + ((PRICE * 7000) / 10000),
             "User1 should receive 70% of payment"
         );
         assertEq(
-            user2.balance,
+            mockUsdc.balanceOf(user2),
             user2InitialBalance + ((PRICE * 3000) / 10000),
             "User2 should receive 30% of payment"
         );
@@ -273,7 +272,7 @@ contract DatasetTokenTest is Test {
         string memory desc2 = "Second Description";
         string memory hash2 = "QmTest456ContentHash";
         string memory ipfs2 = "QmTest456IPFSHash";
-        uint256 price2 = 2 ether;
+        uint256 price2 = 2_000_000; // 2 USDC
 
         // Create different ownership shares for second token
         DatasetToken.OwnershipShare[]
@@ -369,8 +368,8 @@ contract DatasetTokenTest is Test {
 
         // Purchase the token to trigger price increase
         vm.startPrank(user3);
-        vm.deal(user3, PRICE);
-        datasetToken.purchaseDataset{value: PRICE}(0);
+        mockUsdc.approve(address(datasetToken), PRICE);
+        datasetToken.purchaseDataset(0);
         vm.stopPrank();
 
         // Get updated metadata
@@ -413,8 +412,8 @@ contract DatasetTokenTest is Test {
 
         // Purchase first token with user3
         vm.startPrank(user3);
-        vm.deal(user3, PRICE * 2);
-        datasetToken.purchaseDataset{value: PRICE}(0);
+        mockUsdc.approve(address(datasetToken), PRICE * 2);
+        datasetToken.purchaseDataset(0);
 
         // Verify purchase tracking
         uint256[] memory purchasedTokens = datasetToken.getPurchasedTokens(
@@ -432,7 +431,7 @@ contract DatasetTokenTest is Test {
         );
 
         // Purchase second token
-        datasetToken.purchaseDataset{value: PRICE}(1);
+        datasetToken.purchaseDataset(1);
 
         // Verify updated purchase tracking
         purchasedTokens = datasetToken.getPurchasedTokens(user3);

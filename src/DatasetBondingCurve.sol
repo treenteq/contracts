@@ -4,6 +4,7 @@ pragma solidity ^0.8.18;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DatasetToken} from "./DeployDataset.sol";
+import {IUSDC} from "./interfaces/IUSDC.sol";
 import {console2} from "forge-std/console2.sol";
 
 contract DatasetBondingCurve is Ownable {
@@ -11,12 +12,14 @@ contract DatasetBondingCurve is Ownable {
 
     // The Dataset Token contract
     DatasetToken public datasetToken;
+    // The USDC token contract
+    IUSDC public usdc;
 
     // Bonding curve parameters
-    uint256 public constant PRICE_MULTIPLIER = 1.5 ether; // 1.5x increase per token
-    uint256 public constant DENOMINATOR = 1 ether;
+    uint256 public constant PRICE_MULTIPLIER = 1_500_000; // 1.5x increase per token (in USDC decimals)
+    uint256 public constant DENOMINATOR = 1_000_000; // 1.0 in USDC decimals
     uint256 public constant WEEK = 7 days;
-    uint256 public constant DEPRECIATION_RATE = 0.9 ether; // 10% decrease per week of no purchases
+    uint256 public constant DEPRECIATION_RATE = 900_000; // 0.9 in USDC decimals (10% decrease per week)
 
     // Mapping to store initial prices for each token
     mapping(uint256 => uint256) public tokenInitialPrices;
@@ -32,19 +35,22 @@ contract DatasetBondingCurve is Ownable {
 
     constructor(
         address datasetTokenAddress,
+        address usdcAddress,
         address initialOwner
     ) Ownable(initialOwner) {
         require(
             datasetTokenAddress != address(0),
             "Invalid dataset token address"
         );
+        require(usdcAddress != address(0), "Invalid USDC address");
         datasetToken = DatasetToken(datasetTokenAddress);
+        usdc = IUSDC(usdcAddress);
     }
 
     /**
      * @dev Set the initial price for a token's bonding curve
      * @param tokenId The ID of the token
-     * @param initialPrice The initial price in wei
+     * @param initialPrice The initial price in USDC (with 6 decimals)
      */
     function setInitialPrice(uint256 tokenId, uint256 initialPrice) external {
         require(
@@ -152,5 +158,14 @@ contract DatasetBondingCurve is Ownable {
             "Invalid dataset token address"
         );
         datasetToken = DatasetToken(newDatasetTokenAddress);
+    }
+
+    /**
+     * @dev Update the USDC token contract address
+     * @param newUsdcAddress The new address of the USDC token contract
+     */
+    function updateUsdcAddress(address newUsdcAddress) external onlyOwner {
+        require(newUsdcAddress != address(0), "Invalid USDC address");
+        usdc = IUSDC(newUsdcAddress);
     }
 }

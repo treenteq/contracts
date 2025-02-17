@@ -5,6 +5,7 @@ import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {DatasetBondingCurve} from "./DatasetBondingCurve.sol";
+import {IUSDC} from "./interfaces/IUSDC.sol";
 
 contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
     // Token ID counter
@@ -24,6 +25,9 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
         OwnershipShare[] owners; // Array of owners with their ownership percentages
         uint256 price; // Current price from bonding curve (not stored, dynamically fetched)
     }
+
+    // USDC token contract
+    IUSDC public usdc;
 
     // Mapping token ID to dataset metadata
     mapping(uint256 => DatasetMetadata) private _tokenMetadata;
@@ -68,11 +72,25 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
      * @dev Constructor to initialize the contract.
      * @param uri The base URI for metadata.
      * @param initialOwner The address of the initial owner.
+     * @param usdcAddress The address of the USDC contract.
      */
     constructor(
         string memory uri,
-        address initialOwner
-    ) ERC1155(uri) Ownable(initialOwner) {}
+        address initialOwner,
+        address usdcAddress
+    ) ERC1155(uri) Ownable(initialOwner) {
+        require(usdcAddress != address(0), "Invalid USDC address");
+        usdc = IUSDC(usdcAddress);
+    }
+
+    /**
+     * @dev Set the USDC contract address
+     * @param _usdcAddress The address of the USDC contract
+     */
+    function setUsdcAddress(address _usdcAddress) external onlyOwner {
+        require(_usdcAddress != address(0), "Invalid USDC address");
+        usdc = IUSDC(_usdcAddress);
+    }
 
     /**
      * @dev Validate ownership percentages add up to 10000 (100%)
@@ -169,31 +187,43 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Purchase a dataset token
+     * @dev Purchase a dataset token using USDC
      */
-    function purchaseDataset(uint256 tokenId) external payable nonReentrant {
+    function purchaseDataset(uint256 tokenId) external nonReentrant {
         require(isListed[tokenId], "Dataset is not listed for sale");
         require(
             !_hasPurchased[msg.sender][tokenId],
             "Already purchased this dataset"
         );
         uint256 currentPrice = bondingCurve.getCurrentPrice(tokenId);
-        require(msg.value == currentPrice, "Incorrect payment amount");
+        
+        // Check USDC allowance
+        require(
+            usdc.allowance(msg.sender, address(this)) >= currentPrice,
+            "Insufficient USDC allowance"
+        );
 
         DatasetMetadata storage metadata = _tokenMetadata[tokenId];
-        uint256 totalAmount = msg.value;
+
+        // Transfer USDC from buyer to contract
+        require(
+            usdc.transferFrom(msg.sender, address(this), currentPrice),
+            "USDC transfer failed"
+        );
 
         // Distribute payments to owners
         for (uint256 i = 0; i < metadata.owners.length; i++) {
             address owner = metadata.owners[i].owner;
 
             // Calculate owner's share of the payment
-            uint256 ownerShare = (totalAmount * metadata.owners[i].percentage) /
+            uint256 ownerShare = (currentPrice * metadata.owners[i].percentage) /
                 10000;
 
-            // Transfer payment
-            (bool success, ) = owner.call{value: ownerShare}("");
-            require(success, "Payment transfer failed");
+            // Transfer USDC to owner
+            require(
+                usdc.transfer(owner, ownerShare),
+                "USDC transfer to owner failed"
+            );
         }
 
         // Record the purchase
@@ -208,7 +238,7 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
         uint256[] memory amounts = new uint256[](metadata.owners.length);
         for (uint256 i = 0; i < metadata.owners.length; i++) {
             sellers[i] = metadata.owners[i].owner;
-            amounts[i] = (totalAmount * metadata.owners[i].percentage) / 10000;
+            amounts[i] = (currentPrice * metadata.owners[i].percentage) / 10000;
         }
 
         emit DatasetPurchased(tokenId, msg.sender, sellers, amounts);

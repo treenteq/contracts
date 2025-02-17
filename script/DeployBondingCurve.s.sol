@@ -9,18 +9,21 @@ contract DeployBondingCurve is Script {
     function run() external returns (DatasetBondingCurve, DatasetToken) {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployerAddress = vm.addr(deployerPrivateKey);
+        address usdcAddress = vm.envAddress("USDC_ADDRESS");
 
         vm.startBroadcast(deployerPrivateKey);
 
         // First deploy the DatasetToken contract
         DatasetToken datasetToken = new DatasetToken(
             "ipfs://",
-            deployerAddress
+            deployerAddress,
+            usdcAddress
         );
 
         // Then deploy the BondingCurve contract
         DatasetBondingCurve bondingCurve = new DatasetBondingCurve(
             address(datasetToken),
+            usdcAddress,
             deployerAddress
         );
 
