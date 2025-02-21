@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ERC1155Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {DatasetBondingCurve} from "./DatasetBondingCurve.sol";
 import {IUSDC} from "./interfaces/IUSDC.sol";
 
-contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
+contract DatasetToken is
+    Initializable,
+    ERC1155Upgradeable,
+    OwnableUpgradeable,
+    ReentrancyGuardUpgradeable,
+    UUPSUpgradeable
+{
     // Token ID counter
     uint256 private _currentTokenId;
 
@@ -68,29 +76,38 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
 
     event BondingCurveUpdated(address indexed newBondingCurve);
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     /**
-     * @dev Constructor to initialize the contract.
-     * @param uri The base URI for metadata.
-     * @param initialOwner The address of the initial owner.
-     * @param usdcAddress The address of the USDC contract.
+     * @dev Initializer function to replace constructor
+     * @param uri The base URI for metadata
+     * @param initialOwner The address of the initial owner
+     * @param usdcAddress The address of the USDC contract
      */
-    constructor(
+    function initialize(
         string memory uri,
         address initialOwner,
         address usdcAddress
-    ) ERC1155(uri) Ownable(initialOwner) {
+    ) public initializer {
         require(usdcAddress != address(0), "Invalid USDC address");
+
+        __ERC1155_init(uri);
+        __Ownable_init(initialOwner);
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+
         usdc = IUSDC(usdcAddress);
     }
 
     /**
-     * @dev Set the USDC contract address
-     * @param _usdcAddress The address of the USDC contract
+     * @dev Required override for UUPS proxy upgrade authorization
      */
-    function setUsdcAddress(address _usdcAddress) external onlyOwner {
-        require(_usdcAddress != address(0), "Invalid USDC address");
-        usdc = IUSDC(_usdcAddress);
-    }
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {}
 
     /**
      * @dev Validate ownership percentages add up to 10000 (100%)
@@ -196,7 +213,7 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
             "Already purchased this dataset"
         );
         uint256 currentPrice = bondingCurve.getCurrentPrice(tokenId);
-        
+
         // Check USDC allowance
         require(
             usdc.allowance(msg.sender, address(this)) >= currentPrice,
@@ -216,8 +233,8 @@ contract DatasetToken is ERC1155, Ownable, ReentrancyGuard {
             address owner = metadata.owners[i].owner;
 
             // Calculate owner's share of the payment
-            uint256 ownerShare = (currentPrice * metadata.owners[i].percentage) /
-                10000;
+            uint256 ownerShare = (currentPrice *
+                metadata.owners[i].percentage) / 10000;
 
             // Transfer USDC to owner
             require(

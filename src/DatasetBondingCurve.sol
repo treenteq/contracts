@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DatasetToken} from "./DeployDataset.sol";
 import {IUSDC} from "./interfaces/IUSDC.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {console2} from "forge-std/console2.sol";
 
-contract DatasetBondingCurve is Ownable {
+contract DatasetBondingCurve is
+    Initializable,
+    OwnableUpgradeable,
+    UUPSUpgradeable
+{
     using Math for uint256;
 
     // The Dataset Token contract
@@ -33,19 +39,41 @@ contract DatasetBondingCurve is Ownable {
     event PriceCalculated(uint256 indexed tokenId, uint256 price);
     event InitialPriceSet(uint256 indexed tokenId, uint256 initialPrice);
 
-    constructor(
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @dev Initializer function to replace constructor
+     * @param datasetTokenAddress The address of the dataset token contract
+     * @param usdcAddress The address of the USDC token contract
+     * @param initialOwner The address of the initial owner
+     */
+    function initialize(
         address datasetTokenAddress,
         address usdcAddress,
         address initialOwner
-    ) Ownable(initialOwner) {
+    ) public initializer {
         require(
             datasetTokenAddress != address(0),
             "Invalid dataset token address"
         );
         require(usdcAddress != address(0), "Invalid USDC address");
+
+        __Ownable_init(initialOwner);
+        __UUPSUpgradeable_init();
+
         datasetToken = DatasetToken(datasetTokenAddress);
         usdc = IUSDC(usdcAddress);
     }
+
+    /**
+     * @dev Required override for UUPS proxy upgrade authorization
+     */
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {}
 
     /**
      * @dev Set the initial price for a token's bonding curve

@@ -5,10 +5,13 @@ import {Test, console2} from "forge-std/Test.sol";
 import {DatasetToken} from "../src/DeployDataset.sol";
 import {DatasetBondingCurve} from "../src/DatasetBondingCurve.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract DatasetTokenTest is Test {
     DatasetToken public datasetToken;
+    DatasetToken public datasetTokenImpl;
     DatasetBondingCurve public bondingCurve;
+    DatasetBondingCurve public bondingCurveImpl;
     MockUSDC public mockUsdc;
     address public owner;
     address public user1;
@@ -41,16 +44,35 @@ contract DatasetTokenTest is Test {
         TAGS[1] = "ML";
         TAGS[2] = "Data";
 
-        // Deploy contract
-        vm.prank(owner);
-        datasetToken = new DatasetToken(BASE_URI, owner, address(mockUsdc));
+        // Deploy implementation contracts
+        datasetTokenImpl = new DatasetToken();
+        bondingCurveImpl = new DatasetBondingCurve();
 
-        // Deploy and set up bonding curve
-        bondingCurve = new DatasetBondingCurve(
+        // Deploy and initialize proxies
+        bytes memory datasetTokenData = abi.encodeWithSelector(
+            DatasetToken.initialize.selector,
+            BASE_URI,
+            owner,
+            address(mockUsdc)
+        );
+        ERC1967Proxy datasetTokenProxy = new ERC1967Proxy(
+            address(datasetTokenImpl),
+            datasetTokenData
+        );
+        datasetToken = DatasetToken(address(datasetTokenProxy));
+
+        bytes memory bondingCurveData = abi.encodeWithSelector(
+            DatasetBondingCurve.initialize.selector,
             address(datasetToken),
             address(mockUsdc),
             owner
         );
+        ERC1967Proxy bondingCurveProxy = new ERC1967Proxy(
+            address(bondingCurveImpl),
+            bondingCurveData
+        );
+        bondingCurve = DatasetBondingCurve(address(bondingCurveProxy));
+
         vm.prank(owner);
         datasetToken.setBondingCurve(address(bondingCurve));
 
@@ -70,6 +92,18 @@ contract DatasetTokenTest is Test {
         assertEq(datasetToken.getTotalTokens(), 0);
         assertEq(address(datasetToken.bondingCurve()), address(bondingCurve));
         assertEq(address(datasetToken.usdc()), address(mockUsdc));
+    }
+
+    function test_UpgradeDatasetToken() public {
+        // Deploy new implementation
+        DatasetToken newImpl = new DatasetToken();
+
+        // Upgrade to new implementation
+        vm.prank(owner);
+        datasetToken.upgradeToAndCall(address(newImpl), "");
+
+        // Verify upgrade
+        assertEq(DatasetToken(address(datasetToken)).owner(), owner);
     }
 
     function test_MintDatasetToken() public {

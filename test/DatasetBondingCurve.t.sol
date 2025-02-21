@@ -5,10 +5,13 @@ import {Test, console2} from "forge-std/Test.sol";
 import {DatasetToken} from "../src/DeployDataset.sol";
 import {DatasetBondingCurve} from "../src/DatasetBondingCurve.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract DatasetBondingCurveTest is Test {
     DatasetBondingCurve public bondingCurve;
+    DatasetBondingCurve public bondingCurveImpl;
     DatasetToken public datasetToken;
+    DatasetToken public datasetTokenImpl;
     MockUSDC public mockUsdc;
     address public owner;
     address public user1;
@@ -30,15 +33,35 @@ contract DatasetBondingCurveTest is Test {
         // Deploy mock USDC
         mockUsdc = new MockUSDC();
 
-        // Deploy DatasetToken
-        datasetToken = new DatasetToken("ipfs://", owner, address(mockUsdc));
+        // Deploy implementation contracts
+        datasetTokenImpl = new DatasetToken();
+        bondingCurveImpl = new DatasetBondingCurve();
 
-        // Deploy BondingCurve
-        bondingCurve = new DatasetBondingCurve(
+        // Deploy and initialize DatasetToken proxy
+        bytes memory datasetTokenData = abi.encodeWithSelector(
+            DatasetToken.initialize.selector,
+            "ipfs://",
+            owner,
+            address(mockUsdc)
+        );
+        ERC1967Proxy datasetTokenProxy = new ERC1967Proxy(
+            address(datasetTokenImpl),
+            datasetTokenData
+        );
+        datasetToken = DatasetToken(address(datasetTokenProxy));
+
+        // Deploy and initialize BondingCurve proxy
+        bytes memory bondingCurveData = abi.encodeWithSelector(
+            DatasetBondingCurve.initialize.selector,
             address(datasetToken),
             address(mockUsdc),
             owner
         );
+        ERC1967Proxy bondingCurveProxy = new ERC1967Proxy(
+            address(bondingCurveImpl),
+            bondingCurveData
+        );
+        bondingCurve = DatasetBondingCurve(address(bondingCurveProxy));
 
         // Set bonding curve in dataset token
         datasetToken.setBondingCurve(address(bondingCurve));
@@ -54,6 +77,17 @@ contract DatasetBondingCurveTest is Test {
         // Mint USDC to users
         mockUsdc.mint(user1, 100_000_000); // 100 USDC
         mockUsdc.mint(user2, 100_000_000); // 100 USDC
+    }
+
+    function test_UpgradeBondingCurve() public {
+        // Deploy new implementation
+        DatasetBondingCurve newImpl = new DatasetBondingCurve();
+
+        // Upgrade to new implementation
+        bondingCurve.upgradeToAndCall(address(newImpl), "");
+
+        // Verify upgrade
+        assertEq(bondingCurve.owner(), owner);
     }
 
     function test_IndependentBondingCurves() public {
